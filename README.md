@@ -1,6 +1,6 @@
 # SYMBA-FI
 
-Repository for SYMBA-FI: An offshoot of the main SYMBA project with the goal of extending SYMBA's capabilities to calculate square amplitudes directly from potentially Feynman Diagrams/Feynman Integrals (FIs). This project was started as part of Google Summer of Code (GsoC) 2023 as part of the Machine Learning for Science (ML4SCI) umbrella organizaion. Work on SYMBA-FI will continue beyond the GsoC 2023 period.
+Repository for SYMBA-FI: An offshoot of the main SYMBA project with the goal of extending SYMBA's capabilities to calculate square amplitudes directly from potentially Feynman Diagrams/Feynman Integrals (FIs). This project was started as part of Google Summer of Code (GsoC) 2023 as part of the Machine Learning for Science (ML4SCI) umbrella organization. Work on SYMBA-FI will continue beyond the GsoC 2023 period.
 This commit is the final commit for the GsoC 2023 coding period.
 
 **GOAL:**
