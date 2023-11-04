@@ -20,14 +20,14 @@ Thus, some of the comments have been modified to facilitate my own understanding
 
 The goal of this program is to investigate how to generate Feynman Diagram output in a way that is easier for AMFlow to process it.
 The key things AMFlow needs are:
+
 (1) Loop momenta
 
     mty::FeynmanDiagram objects have a method getNLoops() - returns number of loops in the diagram.
-    ''                                        getParticles() - returns set of particles corresponding to a given type - ext/int/loop
-                                                                Should be able to get loop particle masses if needed
+                                            getParticles() - returns set of particles corresponding to a given type - ext/int/loop
+                                            Should be able to get loop particle masses if needed
     FeynmanDiagram objects also have a getExpression method - returns expression of FD as a reference; maybe useful for multiple reasons
     
-
 (2) External momenta                
 
     mty::Kinematics objects have getMomenta()/getOrderedMomenta(), returns external momenta.
@@ -41,10 +41,9 @@ The key things AMFlow needs are:
 
     straightfwd, p1^2->0, (p1+p2)^2 is probably okay for now
 
-(5) PROPAGATORS (inc. numerators) - I think these can just be all possible combos   
-	of inner products involving the loop momenta k                                   
+(5) PROPAGATORS (inc. numerators)                                 
 
-    mty::QuantumField objects have a getPropatagor() method, requires another field.
+    mty::QuantumField objects have a getPropatagor() method, requires fields and specific momentum as args.
     From the mty::wick::nodes, which have both fields and partner(s),  maybe it's possible to get correct expressions for internal
     propagators?
 
@@ -53,16 +52,23 @@ The key things AMFlow needs are:
                     for AMFlow as well, since it expects propagators that are/can be used to re-write inner products in the numerator
                     in terms of (p^2 + m^2)-like expressions.
 
+    Note 11/3/23 -  Propagator objects have methods for printing out the propagator expression directly.
+                    This code goes from insertion -> amplitudes. Getting diagram/propagator info from the amplitudes is tough
+                    since it seems like the Feynman diagram expressions are already abstracted/simplified to a degree where things
+                    like explicit propagators/momenta dependence is not present.
+                    Must figure out how to obtain diagrams before the amplitude is constructed, if at all possible.
+
 (6) Numerical values of mandelstam vars, msq, etc. - where to evaluate the integral 
 	numerically                                                                     
 
-    for now it doesn't matter
+    for now it doesn't matter, since we want symbolic results in the end.
 
 (7) INDICES - which propagators are raised to how many powers. How to get this?     
 
     Extract from diagrams? QuantumFields?
     Maybe MARTY can count the number of internal propagators. For starters, just say 1 of each propagator, then devise a way
     to count unique instances of propagators and set up the appropriate list for AMFlow.
+
 
 
 Gregoire suggests to work directly with Amplitudes and FeynmanDiagram objects as the main object.
@@ -92,11 +98,7 @@ cout << "AMFlowInfo[\"Propagator\"] = " << list[2] << endl;
 cout << "AMFlowInfo[\"Numeric\"] = " << {s -> 100, t -> -10/3, msq -> 1} << endl;
 cout << "AMFlowInfo[\"NThread\"] = " << "4" << endl;
 
-That said, it might be easier to read in the MARTY generated info from a .txt file and setup a .wl file using other .wl files, like
-how AMFlow generates auxiliary files for calculating FDs. How to do this though? What do I need to learn about mathematica?
-That way there's no need to worry about all the annoying extra mmca formatting stuff that shows up when you open .wl/.nb files normally.
-
-We can also just dump everything into one mmca block and run it straightforwardly. So it should be possible to setup files here
+We can just output everything into one mmca block and run it straightforwardly. So it should be possible to setup files here
 and write directly to .wl files.
 */
 
@@ -331,34 +333,34 @@ void export_diagrams_str(mty::Amplitude ampl, std::ofstream &stream)
 
 
 
-// void export_feynman_diagrams_str(mty::Amplitude process_ampl, std::ofstream &stream)
-// // Goal: take in an amplitude/output stream. Output/write FeynmanDiagram expression to output file.
-// // The output of these FeynmanDiagram expressions is not user friendly. Look for another way.
-// {
-//     std::vector<mty::FeynmanDiagram> diagrams = process_ampl.getDiagrams();            // a vector of FeynmanDiagram objects
-//     // std::vector<csl::Expr> fd_expressions = {};                                     // Empty vector meant to house csl expressions of fds
+void export_feynman_diagrams_str(mty::Amplitude process_ampl, std::ofstream &stream)
+// Goal: take in an amplitude/output stream. Output/write FeynmanDiagram expression to output file.
+// The output of these FeynmanDiagram expressions is not user friendly. Look for another way.
+{
+    std::vector<mty::FeynmanDiagram> diagrams = process_ampl.getDiagrams();            // a vector of FeynmanDiagram objects
+    // std::vector<csl::Expr> fd_expressions = {};                                     // Empty vector meant to house csl expressions of fds
 
-//     for(size_t i=0; i!=diagrams.size(); i++){
-//         std::vector<mty::FeynmanDiagram> diagram = {diagrams[i]};                      // diagrams[i] is a FD object.
-//         std::vector<mty::Particle> loopParticles;
-//         for(size_t j=0; j!=diagram.size(); j++){
-//             loopParticles = diagram[j].getParticles(FeynmanDiagram::Loop);
-//             stream << diagram[j].getExpression() << endl;
-//             stream << diagram[j].getNLoops() << endl;
-//             for(size_t k=0; k!=loopParticles.size(); k++){
-//                 stream << loopParticles[k]->getName() << endl;
-//                 stream << "--------------" << endl;
-//             }
+    for(size_t i=0; i!=diagrams.size(); i++){
+        std::vector<mty::FeynmanDiagram> diagram = {diagrams[i]};                      // diagrams[i] is a FD object.
+        std::vector<mty::Particle> loopParticles;
+        for(size_t j=0; j!=diagram.size(); j++){
+            // loopParticles = diagram[j].getParticles(FeynmanDiagram::Loop);
+            stream << diagram[j].getExpression() << endl;
+            stream << diagram[j].getNLoops() << endl;
+            // for(size_t k=0; k!=loopParticles.size(); k++){
+            //     stream << loopParticles[k]->getName() << endl;
+            //     stream << "--------------" << endl;
+            // }
             
             
-//         }
-//     }
+        }
+    }
 
-//     // for(auto const &diagram : diagrams){                                         // For each vector of diagrams in diagrams
-//     //     stream << diagram.getExpression() << endl;                               //
-//     // }
-//     stream << "--------------" << endl;
-// }
+    for(auto const &diagram : diagrams){                                         // For each vector of diagrams in diagrams
+        stream << diagram.getExpression() << endl;                               // Output the expression for the diagram
+    }
+    stream << "--------------" << endl;
+}
 
 
 
@@ -404,6 +406,7 @@ string return_loop_momenta(mty::FeynmanDiagram diag, string separator = ",")
 //  separator/delimiter. Default is ",".
 //  e.g. returns the string "{k1, k2, ..., kn}"
 //  If there are no loops, returns "{}"
+//  This is pretty unrefined, but it works.
 {
     std::string formatted_string = "{";
     int loops = diag.getNLoops();
@@ -422,19 +425,38 @@ string return_loop_momenta(mty::FeynmanDiagram diag, string separator = ",")
 
 std::vector<string> get_loop_propagators(mty::FeynmanDiagram const diag)
 // Work-in-progress
-// For a given diagram diag, find which particles are in loops.
-// idk why this works. I think the public fn is for const diagram input, while the private isn't.
-// So calling it on a non-const diagram object defaults to the private version.
+// For a given diagram diag, find which particles are in loops and return list of propagators.
 {
     std::vector<Particle> loopParticles = diag.getParticles(FeynmanDiagram::Loop);
     std::vector<string> pNames;
     for(auto x : loopParticles)
     // Get the propagators for the loop particles.
-    // Generally, propagators look like ((k_i + p_j)^2 + mass^2)^2
-    // Q: how to identify which particles are involved in which loops -> which mass and which k_i?
-    // Q: 
-    // Need to be formatted in text format.
-    // Could construct them by hand, building up a string. 
+    // Propagators in the context of FIs look like ((k_i + p_j)^2 + mass^2)^2
+    // Generally, they are more complex, involving tensor structures in the numerator. FI literature assumes
+    // these can be/are simplified by re-writing numerator inner products in terms of other ((k_i + p_j)^2 + mass^2)-like terms.
+    // The idea seems to be that for some diagrams/conditions, there are more numerator scalar products than denominators of propagators
+    // So the denominator needs to be supplemented with additional irreducible numerators (linear fns of s_ij, or inner products of 
+    // int/ext momenta) which only need satisfy the condition that the full set of denominators is linearly independent.
+    // So maybe we must simply find all possible inner products of internal momenta w/ all momenta - it worked for AMFlow, i guess.
+    //      -> Look for some combinatorial c++ library for us to find all combos of k_i + q_i and write as (ki + qi)^2 as a start.
+    // An issue arises when generalizing - what about masses? How do we choose? For propagators already in the diagram we know the mass,
+    // but what about for the ones we add by completing/adding to the set of irreducible products?
+    // 
+    // Q: how to identify which particles are involved in which loops -> i.e. which mass, which k_i goes with which p_i??
+    //      -> Maybe it doesn't matter as long as the set is complete? We can always just set indices for these extra propagators to 0.
+    // Q: how to simplify propagators appropriately? As-is, standard QFT propagators are too complex and will not work with AMFlow.
+    // 
+    // Consider:
+    //      -> Identify all loop particles (for now) - DONE
+    //      -> Identify/extract correct loop particle momenta from somewhere.
+                // If the feynman diagram expression could be found in a simple way, it wouldn't be so hard.
+                // There must be some point in the process where each propagator is assigned a definitive momentum.
+    //      -> Extract/construct correct propagators for loop particles - WIP
+    //      -> Use csl to get simplified/contracted index expressions.
+    //      -> Extract numerators and denominators, parse which inner products exist (a-la-FIRE6)
+    //      -> Supplement with remaining k_i + k_j and k_i + p_j propagators. For now, leave them massless.
+    // 
+    // In the end, Need to be formatted in text format.
     {
         pNames.emplace_back(x->getName());
     }
@@ -457,6 +479,16 @@ void export_amflow_format(mty::Amplitude process_ampl, std::ofstream &stream)
 // 
 // Note - this goes through all the diagrams, but the number of diagrams per process is wierd somehow. Have to look into it or find
 //        an alternative for naming the diagram families correctly.
+//
+// 11/3/23:
+// FIND THE PROPAGATOR CREATION STEP
+// THERE'S A PART WHERE MARTY JUST EXPLICITY CONSTRUCTS THE PROPAGATOR(S)
+// AND YOU CAN JUST ADD PRINT STATEMENTS WHERE NEEDED
+// We still may need to use CSL to contract indices/simplify/find out which momenta inner products already exist so that we can
+// supplement/complete the basis for the problem.
+// 
+// FIs also explicitly accesses the LoopTools package, so that should get loop/ext momenta.
+// Look into LoopTools
 {   
     std::vector<mty::FeynmanDiagram> diagrams = process_ampl.getDiagrams();
     int ndiag = diagrams.size();                                                    // This gets the TOTAL number of diagrams.
@@ -512,27 +544,6 @@ void export_amflow_format(mty::Amplitude process_ampl, std::ofstream &stream)
         stream << "-------------------------------------------------------------------------------------------------------------------------" << endl;
     }
 
-    // Output AMFlow file format.
-    // stream << "-------------------------------------------------------------------------------------------------------------------------" << endl;
-    // stream << "current = If[$FrontEnd===Null,$InputFileName,NotebookFileName[]]//DirectoryName;" << endl;
-    // stream << "Get[FileNameJoin[{current, \"..\", \"..\", \"..\",\"software\",\"amflow\", \"AMFlow.m\"}]];" << endl;
-    // stream << "SetReductionOptions[\"IBPReducer\" -> \"FIRE+LiteRed\"];" << endl;
-    // stream << endl;
-    // stream << "AMFlowInfo[\"Family\"] = " << "temp" << endl;
-    // stream << "AMFlowInfo[\"Loop\"] = " << ";" << endl;
-    // stream << "AMFlowInfo[\"Leg\"] = " << ";" << endl;
-    // stream << "AMFlowInfo[\"Conservation\"] = {p4 -> -p1-p2-p3};" << endl;          // Okay for 2-to-2, probably
-    // stream << "AMFlowInfo[\"Replacement\"] = {p1^2 -> 0, p2^2 -> 0, p3^2 -> 0, p3^2 -> 0,  p4^2 -> 0, (p1 + p2)^2 -> s, (p1 + p3)^2 -> t};" << endl;
-    // stream << "AMFlowInfo[\"Propagator\"] = " << "temp" << ";" << endl;
-    // stream << "AMFlowInfo[\"Numeric\"] = {s -> 100, t -> -1, msq -> 1};" << endl;    // Okay for now, what if multiple masses?
-    // stream << "AMFlowInfo[\"Nthread\"] = 4;" << endl;                               // 4 threads is okay
-    // stream << endl;
-    // stream << "integrals = " << "temp" << ";" << endl;
-    // stream << "precision = 3;" << endl;
-    // stream << "epsorder = 2;" << endl;
-    // stream << "sol1 = SolveIntegrals[integrals, precision, epsorder];" << endl;
-    // stream << "Put[sol1, FileNameJoin[{current, \"sol1\"}]];" << endl;
-    // stream << "-------------------------------------------------------------------------------------------------------------------------" << endl;
 }
 
 
@@ -673,7 +684,7 @@ void print_help_func(){
     cout << "--fsqamplitudes_raw: file where the raw squared amplitudes should be saved, default: out/ampl_sq_raw.txt" << endl;
     cout << "--fdiagrams_str: file where the diagrams strings should be saved, default: out/ampl_sq_raw.txt" << endl;
     cout << "--fdexpr: file where the Feynman Diagram csl expressions should be saved, default: out/fdexpr.txt" << endl;
-    cout << "--amflow_str: file where the amflow mathematics script should be saved, default: out/amflow_str.txt" << endl;
+    cout << "--amflow_str: file where the amflow mathematica script should be saved, default: out/amflow_str.txt" << endl;
     cout << "--diagrams: If diagrams should be shown, default: false" << endl;
     cout << "--append: If files should be appended or replaced" << endl;
 }
@@ -689,7 +700,7 @@ void print_help_func(){
 
 
 
-/*THIS IS A TESTING main() FOR DEBUGGING AND MAKING SURE ANY ADJUSTED FUCNTIONS WORK AS INTENDED*/
+/*THIS IS A TESTING main() FOR DEBUGGING AND MAKING SURE ANY ADJUSTED FUNCTIONS WORK AS INTENDED*/
 int main(int argc, char const *argv[])
 {
 	/*
@@ -910,7 +921,7 @@ int main(int argc, char const *argv[])
         ampl_file_handle << ampl_expressions[i] << endl;            // Output to open file. 
     }
 
-    // export_feynman_diagrams_str(process_ampl, fdexpr_file_handle);
+    export_feynman_diagrams_str(process_ampl, fdexpr_file_handle);
     export_diagrams_str(process_ampl, diagrams_file_handle);
     export_amflow_format(process_ampl, amflow_file_handle);
 
