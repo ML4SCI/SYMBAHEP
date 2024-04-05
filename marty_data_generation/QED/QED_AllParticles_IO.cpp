@@ -1,3 +1,6 @@
+// g++ -std=c++23 -c QED_AllParticles_IO.cpp -o QED_AllParticles_IO.o 
+// g++ -std=c++23 -o QED_AllParticles_IO.x QED_AllParticles_IO.o -lmarty
+
 #include <marty.h>
 #include <cxxopts.hpp>
 #include <map>
@@ -5,6 +8,7 @@
 #include <fstream>
 #include <typeinfo>
 #include <stdexcept>
+// #include <feynOptions.h>
 using namespace csl;
 using namespace mty;
 using namespace std;
@@ -100,6 +104,27 @@ cout << "AMFlowInfo[\"NThread\"] = " << "4" << endl;
 
 We can just output everything into one mmca block and run it straightforwardly. So it should be possible to setup files here
 and write directly to .wl files.
+
+
+11/16/23 - Try to elminiate dependence on AMFlow - work only in marty
+Idea - get amplitude(s) -> obtainGraphs()/obtainExpressions() should give csl::Expr for the diagrams, that is, 
+        expressions containing the propators and stuff present in the diagram
+
+        Still need to parse expr to identify which inner products of loop momenta exist
+
+
+
+2/6/23 - Feynman Diagram outputs have explicit "Prop(a,b)" now, so the propagators are in there explicitly. Not sure if there
+        needs to be a further abstraction/simplification so that the propagators is written in full, and not as "Prop(a,b)" before
+        taking derivatives.
+        Speaking of derivatives, it looks like they must be done with explicit dependencies - i.e., the indices must be known and
+        specified when taking the derivative. This could be a pain to do, since we'd need to find each individual k and p in the 
+        integral, get their indices,and only *then* take the derivatives.
+        There seem to be methods to extract indices from an indicial tensor - can these be put in a list/appended to a "p" or "k"
+        to directly reference a momentum? Another problem - contracted indices are uniquely labelled, even if it's the same momentum
+        being contracted in two different places. How to take the derivative if a "p or "k" exists in multiple places, then?
+
+
 */
 
 
@@ -356,9 +381,9 @@ void export_feynman_diagrams_str(mty::Amplitude process_ampl, std::ofstream &str
         }
     }
 
-    for(auto const &diagram : diagrams){                                         // For each vector of diagrams in diagrams
-        stream << diagram.getExpression() << endl;                               // Output the expression for the diagram
-    }
+    // for(auto const &diagram : diagrams){                                         // For each vector of diagrams in diagrams
+    //     stream << diagram.getExpression() << endl;                               // Output the expression for the diagram
+    // }
     stream << "--------------" << endl;
 }
 
@@ -423,45 +448,251 @@ string return_loop_momenta(mty::FeynmanDiagram diag, string separator = ",")
     return formatted_string;
 }
 
-std::vector<string> get_loop_propagators(mty::FeynmanDiagram const diag)
+
+
+string expr_to_string(csl::Expr &expr){
+    // Print the expr as a string right away so it's parseable with standard methods.
+    std::ostringstream a;
+    a << expr;
+    std::string b = std::move(a).str();
+    return b;
+}
+
+string extract_loop_int(csl::Expr &fdexpr, string i_delim){
+    // (1) Find the string/item "int{"
+    // (2) create a size_t variable i to store the first index of "int{"
+    // (3) remove the terms/expressions before index of fdexpr
+    // (4) return trimmed fdexpression
+
+
+    std::string fdexpr_string = expr_to_string(fdexpr);
+    // if our delimiter is "int{," then i should be the position of "i."
+    size_t i = fdexpr_string.find(i_delim);
+    // This line should extract the part of the string from the start of "int{" until the end of the expression - i.e., the integral.
+    fdexpr_string = fdexpr_string.substr(i);
+    return fdexpr_string;
+}
+
+
+// string replace_prop(string i_str){
+//     // Replace "Prop(p,m)" with "1/(p^2 - m^2)" equivalent in the loop integral string.
+    
+//     std::string prop_start = "Prop(";
+//     std::string prop_end = ")";
+//     // size_t start_size = prop_start.size();
+//     size_t found = i_str.find(prop_start);
+//     size_t found2 = i_str.find(")", found);
+//     size_t startIndex = 0;                      
+
+//     while(found != string::npos)                
+//     {
+//         size_t diff = (found + prop_start.size()) - found2;                   // diff is the # of chars b/w ( and )
+//         std::string args = i_str.substr(found + prop_start.size(), diff);      // arguments are the substring of i_str between ( and )
+//         std::vector<std::string> split_args = split(args, ",");      // Split arguments by ","
+//         std::vector<std::string> mom_split_index = split(split_args[0], "_\\"); // Split the momentum into name/index.
+//         cout << "split arguments: " << split_args << endl;                      // Check args split correctly
+//         cout << "split momentum: " << mom_split_index << endl;                  // Check momentum split correctly
+
+
+// // 2/25/24 - start working here again next time
+//         // 
+//         // INSERT CREATION OF NEW PROPAGATOR EXPRESSION HERE.
+//         // STEPS:
+//         // (1) CREATE NEW MOMENTUM OBJECT USING 1ST ARGUMENT AS MOMENTUM NAME
+//         //     Q: Do we have to create/explicitly define that these tensors/indices are Minkowski?
+
+
+//         Tensor imp(mom_split_index[0], &Minkowski);        // Create momentum TensorParent with correct name
+//         Index ind(mom_split_index[1], &Minkowski);          // Create correct index for the TensorParent
+
+//         // csl::TensorParent imp_tp = TensorParent(mom_split_index[0]);
+//         // csl::Index ind = Index(mom_split_index[1]);                                  // Index for the tensor elt
+//         // csl::Index ind = Index();
+//         // csl::TensorElement imp_elt = TensorElement(ind, imp_tp);
+
+//         // (2) RETURN EXPR OF NEW MOMENTUM OBJECT
+
+//         csl::Expr newp_expr = imp(ind);                     //csl::Expr for the new momentum 
+//         csl::Expr mass = split_args[1];
+
+//         // (3) CREATE NEW PROPAGATOR OBJECT, PASSING EXPR OF MOMENTUM FROM (2) AND MASS AS ARGUMENTS
+
+//         mty::Propagator newprop = Propagator(newp_expr, mass);
+
+//         // (4) EVALUATE PROPAGATOR WITH PROPER csl::user::mode TO RETURN 1/(p^2 - m^2)
+
+//         std::optional<csl::Expr> newprop_expr = newprop.evaluate(csl::eval::abbreviation);
+
+//         // (5) CONVERT EVALUATED PROPAGATOR EXPR -> STRING USING expr_to_string
+
+//         std::string newprop_str = expr_to_string(newprop_expr);
+//         i_str.replace(found, found2, newprop_str);
+
+//         cout << "New prop expr: " << i_str << endl;
+        
+//         startIndex = found + prop_start.size();                                        
+//         found = i_str.find(prop_start, startIndex);                                    
+//     }       
+//     // if(startIndex != i_str.size())                                                  
+//     //     result.emplace_back(string(i_str.begin()+startIndex, i_str.end()));         
+//     // return result; 
+//     return i_str;
+// }
+
+
+
+
+std::string get_loop_propagators(mty::FeynmanDiagram const diag, std::ofstream &stream)
 // Work-in-progress
 // For a given diagram diag, find which particles are in loops and return list of propagators.
+// getParticles only lists the unique particles involved in loops, NOT each instance of particles involved in loops.
+// so if a loop involves two electrons, it only sees "one" electron, because only one type of particle runs in the loop.
+// Workaround - brute force parsing by finding instances of "Prop(" in the string version of the csl::Expr
+
 {
-    std::vector<Particle> loopParticles = diag.getParticles(FeynmanDiagram::Loop);
-    std::vector<string> pNames;
-    for(auto x : loopParticles)
-    // Get the propagators for the loop particles.
-    // Propagators in the context of FIs look like ((k_i + p_j)^2 + mass^2)^2
-    // Generally, they are more complex, involving tensor structures in the numerator. FI literature assumes
-    // these can be/are simplified by re-writing numerator inner products in terms of other ((k_i + p_j)^2 + mass^2)-like terms.
-    // The idea seems to be that for some diagrams/conditions, there are more numerator scalar products than denominators of propagators
-    // So the denominator needs to be supplemented with additional irreducible numerators (linear fns of s_ij, or inner products of 
-    // int/ext momenta) which only need satisfy the condition that the full set of denominators is linearly independent.
-    // So maybe we must simply find all possible inner products of internal momenta w/ all momenta - it worked for AMFlow, i guess.
-    //      -> Look for some combinatorial c++ library for us to find all combos of k_i + q_i and write as (ki + qi)^2 as a start.
-    // An issue arises when generalizing - what about masses? How do we choose? For propagators already in the diagram we know the mass,
-    // but what about for the ones we add by completing/adding to the set of irreducible products?
-    // 
-    // Q: how to identify which particles are involved in which loops -> i.e. which mass, which k_i goes with which p_i??
-    //      -> Maybe it doesn't matter as long as the set is complete? We can always just set indices for these extra propagators to 0.
-    // Q: how to simplify propagators appropriately? As-is, standard QFT propagators are too complex and will not work with AMFlow.
-    // 
-    // Consider:
-    //      -> Identify all loop particles (for now) - DONE
-    //      -> Identify/extract correct loop particle momenta from somewhere.
-                // If the feynman diagram expression could be found in a simple way, it wouldn't be so hard.
-                // There must be some point in the process where each propagator is assigned a definitive momentum.
-    //      -> Extract/construct correct propagators for loop particles - WIP
-    //      -> Use csl to get simplified/contracted index expressions.
-    //      -> Extract numerators and denominators, parse which inner products exist (a-la-FIRE6)
-    //      -> Supplement with remaining k_i + k_j and k_i + p_j propagators. For now, leave them massless.
-    // 
-    // In the end, Need to be formatted in text format.
+    // std::vector<Particle> loopParticles = diag.getParticles(FeynmanDiagram::Loop);
+    // std::vector<Particle> mediParticles = diag.getParticles(FeynmanDiagram::Mediator);
+    // int num_prop = loopParticles.size() + mediParticles.size();
+
+    csl::Expr diag_expr = diag.getExpression();
+    csl::Expr loop_int = diag_expr->getArgument(Size(diag_expr)-1); //Loopint
+    
+    std::string integral_str = expr_to_string(loop_int);    // Returns just int{...} onwards as a string
+    std::string prop_start = "Prop(";                       // Identifying where in the return string to swap
+    std::string prop_end = ")";                             // out the old Prop(...) with the new one.
+    size_t found = integral_str.find(prop_start);
+    size_t found2 = integral_str.find(prop_end, found+1);
+    size_t startIndex = 0;
+    
+    csl::Expr integrand = loop_int->getArgument(1);        //Integrand everything after int{...}
+    
+    // This feels like a silly solution, but we need to parse the string until we know that there are no more "Prop()" left.
+    // Basically, we need an index to pass to getArgument.
+    int  loop_count = 0;
+
+    while(found != string::npos)
     {
-        pNames.emplace_back(x->getName());
+        csl::Expr mom = integrand->getArgument(loop_count)->getArgument(0);      // Momentum arg of Prop() - an Expr
+        csl::Expr mass = integrand->getArgument(loop_count)->getArgument(1);      // Mass arg of Prop() - an Expr
+        // stream << "Current momentum: " << mom << endl;
+        // stream << "Current mass: " << mass << endl;
+
+        // Create new propagator object and evaluate in the appropriate form.
+        mty::Propagator temp_prop = Propagator(mom, mass, 0);
+        std::optional<csl::Expr> newprop_expr = temp_prop.evaluate(csl::eval::abbreviation);
+        std::string newprop_str = expr_to_string(*newprop_expr);
+
+        // Remove residual "reg_prop" from propagator string. idk what it does or where it comes from tbh.
+        std::string regprop = "reg_prop";
+        size_t regprop_ind = newprop_str.find(regprop);
+        newprop_str.replace(regprop_ind, regprop.size() + 3, "");       // Replaces "reg_prop + " string with ""
+
+        // Replace old propagator with new one in the loop integral string
+        integral_str.replace(found, found2 - found + 1, newprop_str);
+                                  
+        // Update starting points for string search                                  
+        found = integral_str.find(prop_start, startIndex);
+        found2 = integral_str.find(prop_end, found+1);
+        
+        // Increase loop count for getArgument
+        loop_count = loop_count+1;
     }
-    return pNames;
+
+
+    return integral_str;
 }
+
+
+
+void get_loop_int_str(mty::Amplitude process_ampl, std::ofstream &stream)
+// Goal: take in an amplitude/output stream. Output/write the loop integral string to the output stream.
+// TODO: (1) Figure out how to "evaluate" propagators to go from Prop(p_1_\rho1, m) to 1/(p_1_%\rho1 p_1_+%\rho1 - m^2) or something.
+{
+    std::vector<mty::FeynmanDiagram> diagrams = process_ampl.getDiagrams();            // a vector of FeynmanDiagram objects
+    std::vector<csl::Expr> diag_expr = process_ampl.obtainExpressions();               // vector meant to house csl expressions of fds
+
+    for(size_t i=0; i!=diag_expr.size(); i++){
+        // Note - a lot of this is leftover from debugging and figuring out how things work.
+        // Parse arguments of the diagram expression.
+        // It appears that the integral is the last arg/term, containing the remaining propagators/loop-momenta dependent objects
+        // for(size_t j=0; j!=Size(diag_expr[i]); j++){
+        //     stream << "Term " << j << ": " << diag_expr[i]->getArgument(j) << endl;
+        // }
+
+        // std::vector<Particle> loop_part = diagrams[i].getParticles(FeynmanDiagram::Loop);
+        // stream << "Particles in the loop are: " << loop_part << endl;
+
+        // Returns the integral term of the overall DF expression, notably without "int{...}".
+        // loopint = int{...}... itself IS an expression, but for some reason we can't parse it arg by arg to extract the propagators.
+        csl::Expr loopint = diag_expr[i]->getArgument(Size(diag_expr[i])-1);
+        // stream <<  loopint << endl;          // returns the loop integral.
+        // stream <<  "Integral Expr size is :" <<Size(loopint) << endl;     // the integral is an expression of size 1. We go deeper recursively
+
+
+        csl::Expr integrand = loopint->getArgument(1);                  // Full integrand                                    
+        // std::string inttype = typeid(integrand).name();                 // Integrand is ALSO an Expr
+        // stream << "Integrand Expr is of size: " << Size(integrand) << endl;  // Integrand has size > 1! Can extract/manipulate terms maybe?
+
+        std::string loopint_str = get_loop_propagators(diagrams[i], stream);    //This function is defined above.
+        stream << loopint_str << endl;
+        // stream << "--------------" << endl;
+
+    }
+}
+
+
+
+
+void get_diagram_exprs(mty::Amplitude process_ampl, std::ofstream &stream)
+// 2/23/2024 - For now this is a "test" method for checking out things to manipulate/obtain things for a single diagram.
+// The goal is for this to simple access the amplitude, get the wick graph/amplitude expression, and print out the
+// expression for the diagram to an output stream.
+// 
+{
+    std::vector<csl::Expr> diag_expr = process_ampl.obtainExpressions();                     // vector of diagrams in amplitude
+    std::vector<std::shared_ptr<mty::wick::Graph>> diag_graph = process_ampl.obtainGraphs(); // vec of pointers to mty::wick:Graphs
+    std::vector<mty::FeynmanDiagram> diagrams = process_ampl.getDiagrams();
+    int ndiag = diagrams.size();                                                    // This gets the TOTAL number of diagrams.
+    mty::Kinematics process_kin = process_ampl.getKinematics();                     // Gets Kinematics object of amplitude
+    std::vector<csl::Tensor> momenta_p = process_kin.getOrderedMomenta();           // Returns vector of momenta in order (p_1, p_2,...)
+    std::vector indices_p = process_kin.getIndices();                               // Get kinematic indices - "1, 2, 3, etc..."
+    // string s = typeid(momenta_p[0]).name(); 
+    // string t = typeid(diag_expr[0]).name();
+    // string g = typeid(diag_graph[0]).name();
+    // string i = typeid(indices_p[0]).name();
+    // stream << "Objects in the vector \"momenta_p\" are of type: " << s << endl;     // Momenta are Tensors, not TensorElements...
+    // stream << "Objects in the vector \"diag_expr\" are of type: " << t << endl;     // TensorParents are for generating TensorElements.
+    // stream << "Objects in the vector \"diag_graph\" are of type: " << g << endl;
+    // stream << "Objects in the vector \"indices_p\" are of type: " << i << endl;
+    // Currently, this only outputs the FIRST feynman diagram to the amflow output file.
+    // So this isn't worth much. For now, keep looking at the output of fdexpr which contains ALL feynman diagrams.
+    // 
+    // We need a TensorElement to extract the lorentz/gamma index information.
+    // TDerivative gives an operator. It needs a name and space. When applying to an Expr, must provide the index/Tensor. NOT a TensorElement.
+    // 
+    // stream << diag_expr[0] << endl;
+    stream << extract_loop_int(diag_expr[0], "int{") << endl;
+    // TDerivative d("d", &Minkowski);
+    // Index mu("mu", &Minkowski);
+    // stream << d(mu, momenta_p[0])*diag_expr[0] << endl; // Can't get indices from a csl::Tensor????
+    // stream << momenta_p[0]->getIndices() << endl;
+    // stream << "----------------------------------------------------------" << endl;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 void export_amflow_format(mty::Amplitude process_ampl, std::ofstream &stream)
@@ -519,8 +750,8 @@ void export_amflow_format(mty::Amplitude process_ampl, std::ofstream &stream)
 
     for(int j=0; j!=ndiag; j++){
         stream << "Current diagram number in process_ampl is " << j << " out of ndiag = " << ndiag << "." << endl;
-        particleNames = get_loop_propagators(diagrams[j]);
-        stream << "Loop Particles: " << particleNames << endl;
+        // particleNames = get_loop_propagators(diagrams[j]);               // This function is obsolete
+        // stream << "Loop Particles: " << particleNames << endl;
         stream << "-------------------------------------------------------------------------------------------------------------------------" << endl;
         stream << "current = If[$FrontEnd===Null,$InputFileName,NotebookFileName[]]//DirectoryName;" << endl;
         stream << "Get[FileNameJoin[{current, \"..\", \"..\", \"..\",\"software\",\"amflow\", \"AMFlow.m\"}]];" << endl;
@@ -684,7 +915,7 @@ void print_help_func(){
     cout << "--fsqamplitudes_raw: file where the raw squared amplitudes should be saved, default: out/ampl_sq_raw.txt" << endl;
     cout << "--fdiagrams_str: file where the diagrams strings should be saved, default: out/ampl_sq_raw.txt" << endl;
     cout << "--fdexpr: file where the Feynman Diagram csl expressions should be saved, default: out/fdexpr.txt" << endl;
-    cout << "--amflow_str: file where the amflow mathematica script should be saved, default: out/amflow_str.txt" << endl;
+    cout << "--loopint_str: file where the amflow mathematica script should be saved, default: out/loopint_str.txt" << endl;
     cout << "--diagrams: If diagrams should be shown, default: false" << endl;
     cout << "--append: If files should be appended or replaced" << endl;
 }
@@ -734,7 +965,7 @@ int main(int argc, char const *argv[])
     options.add_options()
       ("h,help", "Print help", cxxopts::value<bool>()->default_value("false")) // a bool parameter
       ("f,fdexpr", "File name for (f)eynman diagram expressions", cxxopts::value<std::string>()->default_value("out/fdexpr.txt"))
-      ("m,amflow_str", "File name for output AMFlow .wl files", cxxopts::value<std::string>()->default_value("out/amflow_output.wl"))
+      ("m,loopint_str", "File name for output loop integral files", cxxopts::value<std::string>()->default_value("out/loopint.txt"))
       ("a,famplitudes", "File name for amplitudes", cxxopts::value<std::string>()->default_value("out/ampl.txt"))
       ("s,fsqamplitudes", "File name for squared amplitudes", cxxopts::value<std::string>()->default_value("out/ampl_sq.txt"))
       ("r,fsqamplitudes_raw", "File name for raw squared amplitudes", cxxopts::value<std::string>()->default_value("out/ampl_sq_raw.txt"))
@@ -751,7 +982,7 @@ int main(int argc, char const *argv[])
     auto print_diagrams = opts["diagrams"].as<bool>();
     auto append_files = opts["append"].as<bool>();
     auto fdexpr_file = opts["fdexpr"].as<std::string>();
-    auto amflow_file = opts["amflow_str"].as<std::string>();
+    auto loopint_file = opts["loopint_str"].as<std::string>();
     auto particles_strings = opts["particles"].as<std::vector<std::string>>();
     auto amplitudes_file = opts["famplitudes"].as<std::string>();
     auto sqamplitudes_file = opts["fsqamplitudes"].as<std::string>();
@@ -769,7 +1000,7 @@ int main(int argc, char const *argv[])
     cout << "Will export raw squared amplitudes to " << sqamplitudes_raw_file << endl;
     cout << "Will export diagrams to " << diagrams_file << endl;
     cout << "Will export Feynman diagram expressions to " << fdexpr_file << endl;
-    cout << "Will export AFMflow .wl scripts to " << amflow_file << endl;
+    cout << "Will export loop integral strings to " << loopint_file << endl;
     if (append_files)
         cout << "Files will be appended if they exist." << endl;
     else
@@ -854,11 +1085,17 @@ int main(int argc, char const *argv[])
     }
 
 
-    auto process_ampl = QED.computeAmplitude(Order::TreeLevel,  // OneLoop, TreeLevel
-                                    insertions
+    mty::FeynOptions qed_opts = FeynOptions(); //mty::option::simplifyAmplitudes = false);
+    qed_opts.simplifyAmplitudes = false;
+    // qed_opts.abbreviateColorStructures = false;
+
+    // ScopedProperty tempProperty(&csl::option::printIndexIds, false);
+    auto process_ampl = QED.computeAmplitude(Order::OneLoop,  // OneLoop, TreeLevel
+                                    insertions, 
+                                    qed_opts // Provide FeynOptions to not abbreviate terms
     );
     std::vector<csl::Expr> ampl_expressions = {};               // Empty vector of scl::Expr for the amplitude expressions
-    // std::vector<csl::Expr> squared_ampl_expressions = square_amplitude_individually(process_ampl, QED);  //This computes |M|^2
+    std::vector<csl::Expr> squared_ampl_expressions = square_amplitude_individually(process_ampl, QED);  //This computes |M|^2
 
     for (size_t i = 0; i!=process_ampl.size(); i++){                                        // For each element in process.ampl
     auto diagram_ampl_eval = Evaluated(process_ampl.expression(i), eval::abbreviation);     // Evaluate amplitude expression
@@ -881,39 +1118,39 @@ int main(int argc, char const *argv[])
     // For now, don't calculate/output any squard amp stuff.
     // Or anything involving conversion to prefix notation - i.e., anything involving "raw"
     std::ofstream ampl_file_handle;
-    // std::ofstream sqampl_file_handle;
+    std::ofstream sqampl_file_handle;
     // std::ofstream sqampl_raw_file_handle;
     // std::ofstream ampl_raw_file_handle;
     std::ofstream diagrams_file_handle;
     std::ofstream fdexpr_file_handle;
-    std::ofstream amflow_file_handle;
+    std::ofstream loopint_file_handle;
     if (append_files){
     ampl_file_handle.open(amplitudes_file, std::ios_base::app);
-    // sqampl_file_handle.open(sqamplitudes_file, std::ios_base::app);
+    sqampl_file_handle.open(sqamplitudes_file, std::ios_base::app);
     // sqampl_raw_file_handle.open(sqamplitudes_raw_file, std::ios_base::app);
     // ampl_raw_file_handle.open(amplitudes_raw_file, std::ios_base::app);
     diagrams_file_handle.open(diagrams_file, std::ios_base::app);
     fdexpr_file_handle.open(fdexpr_file, std::ios_base::app);
-    amflow_file_handle.open(amflow_file, std::ios_base::app);
+    loopint_file_handle.open(loopint_file, std::ios_base::app);
     }
     else{
     ampl_file_handle.open(amplitudes_file);
-    // sqampl_file_handle.open(sqamplitudes_file);
+    sqampl_file_handle.open(sqamplitudes_file);
     // sqampl_raw_file_handle.open(sqamplitudes_raw_file);
     // ampl_raw_file_handle.open(amplitudes_raw_file);
     diagrams_file_handle.open(diagrams_file);
     fdexpr_file_handle.open(fdexpr_file);
-    amflow_file_handle.open(amflow_file);
+    loopint_file_handle.open(loopint_file);
     }
 
     // This converts amplitude expressions to prefix notation.
     // For the time being, comment this out. 
     // If to_prefix_notation were here, THAT would be the function which writes to a file/output stream.
-    //  So I must figure out how to output the amplitudes as-is to ampl_file_handle
+    //  So I must figure out how to output the amplitudes as-is to ampl_file_haDisplayAbbndle
     // for(size_t i=0; i!=ampl_expressions.size(); i++){
     //     to_prefix_notation(ampl_expressions[i], ampl_file_handle);
     //     to_prefix_notation(squared_ampl_expressions[i], sqampl_file_handle);
-    //     sqampl_raw_file_handle << squared_ampl_expressions[i] << endl;
+       // sqampl_raw_file_handle << squared_ampl_expressions[i] << endl;
     //     ampl_raw_file_handle << ampl_expressions[i] << endl;
     // }
 
@@ -921,19 +1158,24 @@ int main(int argc, char const *argv[])
         ampl_file_handle << ampl_expressions[i] << endl;            // Output to open file. 
     }
 
+    for(size_t i=0; i!=squared_ampl_expressions.size(); i++){
+        sqampl_file_handle << squared_ampl_expressions[i] << endl;            // Output to open file. 
+    }
+
     export_feynman_diagrams_str(process_ampl, fdexpr_file_handle);
     export_diagrams_str(process_ampl, diagrams_file_handle);
-    export_amflow_format(process_ampl, amflow_file_handle);
+    get_loop_int_str(process_ampl, loopint_file_handle);
+    // export_amflow_format(process_ampl, amflow_file_handle);
 
     ampl_file_handle.close();
-    // sqampl_file_handle.close();
+    sqampl_file_handle.close();
     // sqampl_raw_file_handle.close();
     // ampl_raw_file_handle.close();
     diagrams_file_handle.close();
     fdexpr_file_handle.close();
-    amflow_file_handle.close();
+    loopint_file_handle.close();
 
-
+    DisplayAbbreviations();
 
 
 	return 0;
