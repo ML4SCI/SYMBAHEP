@@ -75,14 +75,14 @@ if __name__== "__main__":
     #possible_three_to_three = get_possible_n_to_m(particles_list, 3, 3)
 
     limited_two_to_two = get_limited_n_to_m(particles_list, 2, 2)
-    # limited_one_to_one = get_limited_n_to_m(particles_list, 1, 1)
+     limited_one_to_one = get_limited_n_to_m(particles_list, 1, 1)
 
     # These get the length of the possible n to m processes.
     # ic(len(possible_two_to_two))
     #ic(len(possible_three_to_three))
     
-    # ic(len(limited_one_to_one))
-    ic(len(limited_two_to_two))
+     ic(len(limited_one_to_one))
+    # ic(len(limited_two_to_two))
 
     ampl_file = "out/ampl.txt"
     fdexpr_file = "out/fdexpr.txt"
@@ -101,8 +101,21 @@ if __name__== "__main__":
     delete_file(diagrams_file)
 
 
-    # print("Calculating 1-1 amplitudes and squares")
-    # for p in tqdm(limited_one_to_one):
+     print("Calculating 1-1 amplitudes and squares")
+     for p in tqdm(limited_one_to_one):
+         calc_amplitude(p,
+                 ampl_file=ampl_file,
+                 fdexpr_file=fdexpr_file,
+                 loopint_file=loopint_file,
+                 sqampl_file=sqampl_file,
+                 insertions_file=insertions_file,
+                 log_file=log_file
+                 )
+
+
+    # print("Calculating 2-2 amplitudes and squares")
+    # for p in tqdm(possible_two_to_two):
+    # for p in tqdm(limited_two_to_two):
     #     calc_amplitude(p,
     #             ampl_file=ampl_file,
     #             fdexpr_file=fdexpr_file,
@@ -111,19 +124,6 @@ if __name__== "__main__":
     #             insertions_file=insertions_file,
     #             log_file=log_file
     #             )
-
-
-    print("Calculating 2-2 amplitudes and squares")
-    # for p in tqdm(possible_two_to_two):
-    for p in tqdm(limited_two_to_two):
-        calc_amplitude(p,
-                ampl_file=ampl_file,
-                fdexpr_file=fdexpr_file,
-                loopint_file=loopint_file,
-                sqampl_file=sqampl_file,
-                insertions_file=insertions_file,
-                log_file=log_file
-                )
 
     # print("Calculating 3-3 amplitudes and squares")
     # for p in tqdm(possible_three_to_three):

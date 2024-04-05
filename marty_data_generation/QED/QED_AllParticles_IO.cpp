@@ -105,26 +105,6 @@ cout << "AMFlowInfo[\"NThread\"] = " << "4" << endl;
 We can just output everything into one mmca block and run it straightforwardly. So it should be possible to setup files here
 and write directly to .wl files.
 
-
-11/16/23 - Try to elminiate dependence on AMFlow - work only in marty
-Idea - get amplitude(s) -> obtainGraphs()/obtainExpressions() should give csl::Expr for the diagrams, that is, 
-        expressions containing the propators and stuff present in the diagram
-
-        Still need to parse expr to identify which inner products of loop momenta exist
-
-
-
-2/6/23 - Feynman Diagram outputs have explicit "Prop(a,b)" now, so the propagators are in there explicitly. Not sure if there
-        needs to be a further abstraction/simplification so that the propagators is written in full, and not as "Prop(a,b)" before
-        taking derivatives.
-        Speaking of derivatives, it looks like they must be done with explicit dependencies - i.e., the indices must be known and
-        specified when taking the derivative. This could be a pain to do, since we'd need to find each individual k and p in the 
-        integral, get their indices,and only *then* take the derivatives.
-        There seem to be methods to extract indices from an indicial tensor - can these be put in a list/appended to a "p" or "k"
-        to directly reference a momentum? Another problem - contracted indices are uniquely labelled, even if it's the same momentum
-        being contracted in two different places. How to take the derivative if a "p or "k" exists in multiple places, then?
-
-
 */
 
 
@@ -474,71 +454,6 @@ string extract_loop_int(csl::Expr &fdexpr, string i_delim){
 }
 
 
-// string replace_prop(string i_str){
-//     // Replace "Prop(p,m)" with "1/(p^2 - m^2)" equivalent in the loop integral string.
-    
-//     std::string prop_start = "Prop(";
-//     std::string prop_end = ")";
-//     // size_t start_size = prop_start.size();
-//     size_t found = i_str.find(prop_start);
-//     size_t found2 = i_str.find(")", found);
-//     size_t startIndex = 0;                      
-
-//     while(found != string::npos)                
-//     {
-//         size_t diff = (found + prop_start.size()) - found2;                   // diff is the # of chars b/w ( and )
-//         std::string args = i_str.substr(found + prop_start.size(), diff);      // arguments are the substring of i_str between ( and )
-//         std::vector<std::string> split_args = split(args, ",");      // Split arguments by ","
-//         std::vector<std::string> mom_split_index = split(split_args[0], "_\\"); // Split the momentum into name/index.
-//         cout << "split arguments: " << split_args << endl;                      // Check args split correctly
-//         cout << "split momentum: " << mom_split_index << endl;                  // Check momentum split correctly
-
-
-// // 2/25/24 - start working here again next time
-//         // 
-//         // INSERT CREATION OF NEW PROPAGATOR EXPRESSION HERE.
-//         // STEPS:
-//         // (1) CREATE NEW MOMENTUM OBJECT USING 1ST ARGUMENT AS MOMENTUM NAME
-//         //     Q: Do we have to create/explicitly define that these tensors/indices are Minkowski?
-
-
-//         Tensor imp(mom_split_index[0], &Minkowski);        // Create momentum TensorParent with correct name
-//         Index ind(mom_split_index[1], &Minkowski);          // Create correct index for the TensorParent
-
-//         // csl::TensorParent imp_tp = TensorParent(mom_split_index[0]);
-//         // csl::Index ind = Index(mom_split_index[1]);                                  // Index for the tensor elt
-//         // csl::Index ind = Index();
-//         // csl::TensorElement imp_elt = TensorElement(ind, imp_tp);
-
-//         // (2) RETURN EXPR OF NEW MOMENTUM OBJECT
-
-//         csl::Expr newp_expr = imp(ind);                     //csl::Expr for the new momentum 
-//         csl::Expr mass = split_args[1];
-
-//         // (3) CREATE NEW PROPAGATOR OBJECT, PASSING EXPR OF MOMENTUM FROM (2) AND MASS AS ARGUMENTS
-
-//         mty::Propagator newprop = Propagator(newp_expr, mass);
-
-//         // (4) EVALUATE PROPAGATOR WITH PROPER csl::user::mode TO RETURN 1/(p^2 - m^2)
-
-//         std::optional<csl::Expr> newprop_expr = newprop.evaluate(csl::eval::abbreviation);
-
-//         // (5) CONVERT EVALUATED PROPAGATOR EXPR -> STRING USING expr_to_string
-
-//         std::string newprop_str = expr_to_string(newprop_expr);
-//         i_str.replace(found, found2, newprop_str);
-
-//         cout << "New prop expr: " << i_str << endl;
-        
-//         startIndex = found + prop_start.size();                                        
-//         found = i_str.find(prop_start, startIndex);                                    
-//     }       
-//     // if(startIndex != i_str.size())                                                  
-//     //     result.emplace_back(string(i_str.begin()+startIndex, i_str.end()));         
-//     // return result; 
-//     return i_str;
-// }
-
 
 
 
@@ -574,15 +489,13 @@ std::string get_loop_propagators(mty::FeynmanDiagram const diag, std::ofstream &
     {
         csl::Expr mom = integrand->getArgument(loop_count)->getArgument(0);      // Momentum arg of Prop() - an Expr
         csl::Expr mass = integrand->getArgument(loop_count)->getArgument(1);      // Mass arg of Prop() - an Expr
-        // stream << "Current momentum: " << mom << endl;
-        // stream << "Current mass: " << mass << endl;
 
         // Create new propagator object and evaluate in the appropriate form.
         mty::Propagator temp_prop = Propagator(mom, mass, 0);
         std::optional<csl::Expr> newprop_expr = temp_prop.evaluate(csl::eval::abbreviation);
         std::string newprop_str = expr_to_string(*newprop_expr);
 
-        // Remove residual "reg_prop" from propagator string. idk what it does or where it comes from tbh.
+        // Remove residual "reg_prop" from propagator string. Not sure where it comes from, honestly.
         std::string regprop = "reg_prop";
         size_t regprop_ind = newprop_str.find(regprop);
         newprop_str.replace(regprop_ind, regprop.size() + 3, "");       // Replaces "reg_prop + " string with ""
@@ -615,17 +528,10 @@ void get_loop_int_str(mty::Amplitude process_ampl, std::ofstream &stream)
         // Note - a lot of this is leftover from debugging and figuring out how things work.
         // Parse arguments of the diagram expression.
         // It appears that the integral is the last arg/term, containing the remaining propagators/loop-momenta dependent objects
-        // for(size_t j=0; j!=Size(diag_expr[i]); j++){
-        //     stream << "Term " << j << ": " << diag_expr[i]->getArgument(j) << endl;
-        // }
-
-        // std::vector<Particle> loop_part = diagrams[i].getParticles(FeynmanDiagram::Loop);
-        // stream << "Particles in the loop are: " << loop_part << endl;
 
         // Returns the integral term of the overall DF expression, notably without "int{...}".
         // loopint = int{...}... itself IS an expression, but for some reason we can't parse it arg by arg to extract the propagators.
         csl::Expr loopint = diag_expr[i]->getArgument(Size(diag_expr[i])-1);
-        // stream <<  loopint << endl;          // returns the loop integral.
         // stream <<  "Integral Expr size is :" <<Size(loopint) << endl;     // the integral is an expression of size 1. We go deeper recursively
 
 
@@ -635,7 +541,6 @@ void get_loop_int_str(mty::Amplitude process_ampl, std::ofstream &stream)
 
         std::string loopint_str = get_loop_propagators(diagrams[i], stream);    //This function is defined above.
         stream << loopint_str << endl;
-        // stream << "--------------" << endl;
 
     }
 }
@@ -656,26 +561,13 @@ void get_diagram_exprs(mty::Amplitude process_ampl, std::ofstream &stream)
     mty::Kinematics process_kin = process_ampl.getKinematics();                     // Gets Kinematics object of amplitude
     std::vector<csl::Tensor> momenta_p = process_kin.getOrderedMomenta();           // Returns vector of momenta in order (p_1, p_2,...)
     std::vector indices_p = process_kin.getIndices();                               // Get kinematic indices - "1, 2, 3, etc..."
-    // string s = typeid(momenta_p[0]).name(); 
-    // string t = typeid(diag_expr[0]).name();
-    // string g = typeid(diag_graph[0]).name();
-    // string i = typeid(indices_p[0]).name();
-    // stream << "Objects in the vector \"momenta_p\" are of type: " << s << endl;     // Momenta are Tensors, not TensorElements...
-    // stream << "Objects in the vector \"diag_expr\" are of type: " << t << endl;     // TensorParents are for generating TensorElements.
-    // stream << "Objects in the vector \"diag_graph\" are of type: " << g << endl;
-    // stream << "Objects in the vector \"indices_p\" are of type: " << i << endl;
-    // Currently, this only outputs the FIRST feynman diagram to the amflow output file.
-    // So this isn't worth much. For now, keep looking at the output of fdexpr which contains ALL feynman diagrams.
+
     // 
     // We need a TensorElement to extract the lorentz/gamma index information.
     // TDerivative gives an operator. It needs a name and space. When applying to an Expr, must provide the index/Tensor. NOT a TensorElement.
     // 
     // stream << diag_expr[0] << endl;
     stream << extract_loop_int(diag_expr[0], "int{") << endl;
-    // TDerivative d("d", &Minkowski);
-    // Index mu("mu", &Minkowski);
-    // stream << d(mu, momenta_p[0])*diag_expr[0] << endl; // Can't get indices from a csl::Tensor????
-    // stream << momenta_p[0]->getIndices() << endl;
     // stream << "----------------------------------------------------------" << endl;
 }
 
