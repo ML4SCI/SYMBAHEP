@@ -1,0 +1,92 @@
+# The program to run
+program: main.py
+
+
+# Method can be grid, random, or bayes
+method: bayes
+
+# Project this sweep is part of
+project: Transformer_QED_2-3_niche_tuner
+# entity: ritesh-slurm
+
+# Metric to optimize
+metric:
+  name: valid/loss
+  goal: minimize
+
+# Parameters space to search
+parameters:
+  project_name:
+    value: Transformer_QED_2-3_niche_tuner
+  run_name:
+    value: NA
+  epochs:
+    value: 2
+  training_batch_size:
+    value: 32
+  test_batch_size:
+    value: 32
+  valid_batch_size:
+    value: 32
+  num_workers:
+    value: 32
+  curr_epoch:
+    value: 0
+  nhead:
+    values: [8, 16]
+  num_encoder_layers:
+    value: 3
+  num_decoder_layers:
+    value: 3
+  dropout:
+    values: [0.05, 0.1, 0.2, 0.5]
+  embedding_size:
+    value: 512
+  warmup_ratio:
+    value: 0
+  weight_decay:
+    values: [1e-6, 1e-4, 1e-5, 1e-3, 1e-2, 0.1, 0.2, 0.3, 0.5]
+  seed:
+    value: 42
+  hidden_dim:
+    values: [4096,8192,9216,12288]
+  src_max_len:
+    value: 602
+  tgt_max_len:
+    value: 1202
+  optimizer_lr:
+    distribution: uniform
+    min: 1e-6
+    max: 5e-4
+  clip_grad_norm:
+    values: [1e-6,1e-4,1e-3,1e-2,1e-1,1,10,20,30]
+  train_shuffle:
+    value: True
+  pin_memory:
+    value: True
+  world_size:
+    value: 2
+  save_freq:
+    value: 10
+  test_freq:
+    value: 3
+  log_freq:
+    value: 20
+  save_last:
+    value: True
+
+  model_name:
+    value: "transformer"
+  root_dir:
+    value: "/pscratch/sd/r/ritesh11/QED_2-3_tune"
+  data_dir:
+    value: "/pscratch/sd/r/ritesh11/QED/data/QED_normal_2-to-3"
+  device:
+    value: "cuda"
+
+command:
+  - torchrun
+  - --standalone
+  - --nproc_per_node=2
+  - ${program}
+  - ${args}
