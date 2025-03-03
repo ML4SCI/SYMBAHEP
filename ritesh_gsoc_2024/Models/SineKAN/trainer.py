@@ -224,7 +224,7 @@ class Trainer():
         Returns:
             Tensor: Loss value.
         """
-        loss_fn = torch.nn.CrossEntropyLoss()
+        loss_fn = torch.nn.CrossEntropyLoss(ignore_index=PAD_IDX)
         return loss_fn(y_pred, y_true)
 
     def _prepare_model(self):

@@ -2,11 +2,12 @@ import torchtext; torchtext.disable_torchtext_deprecation_warning()
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
-from tokenizer import Tokenizer
+from Modeling.tokenizer import Tokenizer
 import argparse
 import random
 import os
 from sklearn.model_selection import train_test_split
+from Modeling.constants import SPECIAL_SYMBOLS,UNK_IDX
 
 # Argument parsing
 parser = argparse.ArgumentParser(description="Augment data parser")
@@ -21,9 +22,6 @@ parser.add_argument('--n_samples', type=int, default=1, help='Number of aug samp
 parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')  # Added seed argument
 args = parser.parse_args()
 
-# Constants
-BOS_IDX, PAD_IDX, EOS_IDX, UNK_IDX, SEP_IDX = 0, 1, 2, 3, 4
-special_symbols = ['<S>', '<PAD>', '</S>', '<UNK>', '<SEP>']
 
 # Set random seed for reproducibility, if provided
 if args.seed is not None:
@@ -35,7 +33,7 @@ if args.seed is not None:
 df = pd.read_csv(os.path.join(args.data_dir,args.src_file_name))
 
 # Initialize the Tokenizer
-tokenizer = Tokenizer(df, args.index_pool_size, args.momentum_pool_size, special_symbols, UNK_IDX,args.to_replace)
+tokenizer = Tokenizer(df, args.index_pool_size, args.momentum_pool_size, SPECIAL_SYMBOLS, UNK_IDX,args.to_replace)
 
 def normalize_indices(tokenizer, expressions, index_token_pool_size=50, momentum_token_pool_size=50):
     # Function to replace indices with a new set of tokens for each expression
