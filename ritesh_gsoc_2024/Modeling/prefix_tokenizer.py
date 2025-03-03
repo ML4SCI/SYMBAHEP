@@ -1,7 +1,6 @@
 from collections import Counter, OrderedDict
 import re
 from tqdm import tqdm
-import pandas as pd
 from torchtext.vocab import vocab
 
 

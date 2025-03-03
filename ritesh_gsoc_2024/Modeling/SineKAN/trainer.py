@@ -1,6 +1,6 @@
 from tqdm import tqdm
 from data import Data
-from fn_utils import calculate_line_params, causal_mask, generate_unique_random_integers, get_model, tgt_decode
+from fn_utils import calculate_line_params, causal_mask, generate_unique_random_integers, get_model, decode_sequence
 import torch
 import os
 from torch.optim.lr_scheduler import LambdaLR
@@ -9,9 +9,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import wandb
 import numpy as np
 
-# Special tokens & coressponding ids
-BOS_IDX, PAD_IDX, EOS_IDX, UNK_IDX, SEP_IDX = 0, 1, 2, 3, 4
-special_symbols = ['<S>', '<PAD>', '</S>', '<UNK>', '<SEP>']
+from ..constants import BOS_IDX, PAD_IDX, EOS_IDX
 
 def sequence_accuracy(config,test_ds,tgt_itos,load_best=True, epoch=None,test_size=100):
     """
@@ -37,42 +35,56 @@ def sequence_accuracy(config,test_ds,tgt_itos,load_best=True, epoch=None,test_si
             test_ds[random_idx[i]],tgt_itos, raw_tokens=True)
         original_tokens = original_tokens.detach().numpy().tolist()
         predicted_tokens = predicted_tokens.detach().cpu().numpy().tolist()
-        original = tgt_decode(original_tokens,tgt_itos)
-        predicted = tgt_decode(predicted_tokens,tgt_itos)
+        original = decode_sequence(original_tokens,tgt_itos)
+        predicted = decode_sequence(predicted_tokens,tgt_itos)
         if original == predicted:
             count = count + 1
         pbar.set_postfix(seq_accuracy=count / (i + 1))
     return count / length
 
 
-class Predictor():
+class Predictor:
     """
     Class for generating predictions using a trained model.
 
     Args:
-        device (str): Device to use for inference.
-        epoch (int): Epoch number.
+        config (object): Configuration object containing model and inference settings.
+        load_best (bool, optional): Whether to load the best model. Defaults to True.
+        epoch (int, optional): Epoch number to load a specific checkpoint.
 
     Attributes:
         model (Model): Trained model for prediction.
         path (str): Path to the trained model.
         device (str): Device for inference.
-        df (DataFrame): DataFrame containing training data.
-        vocab (dict): Vocabulary for tokenization.
-        attrs (list): List of attributes in the dataset.
-        checkpoint (str): model checkpoint path
+        checkpoint (str): Model checkpoint path.
+        max_len (int): Maximum target sequence length for inference.
     """
 
     def __init__(self, config, load_best=True, epoch=None):
         self.model = get_model(config)
-        self.checkpoint = f"{config.model_name}_best.pth" if load_best else f"{config.model_name}_ep{epoch+1}.pth"
+        
+        # Determine checkpoint path
+        if load_best:
+            self.checkpoint = f"{config.model_name}_best.pth"
+        else:
+            self.checkpoint = f"{config.model_name}_ep{epoch + 1}.pth"
+        
         self.path = os.path.join(config.root_dir, self.checkpoint)
-        self.device = f"cuda:{config.device}" if "cuda" not in str(config.device) else config.device
+        
+        # Set device for inference
+        self.device = (
+            f"cuda:{config.device}" if "cuda" not in str(config.device) else config.device
+        )
+        
+        # Load model state
         state = torch.load(self.path, map_location=self.device)
         self.model.load_state_dict(state['state_dict'])
         self.model.to(self.device)
+        
+        # Maximum target length for inference
         self.max_len = config.tgt_max_len
-        print(f"USING EPOCH {state['epoch']} MODEL FOR PREDICTIONS")
+        
+        print(f"Using epoch {state['epoch']} model for predictions.")
 
     def greedy_decode(self, src, src_mask, max_len, start_symbol):
         """
@@ -94,7 +106,7 @@ class Predictor():
         memory = self.model.encode(src, src_mask)
         memory = memory.to(self.device)
         ys = torch.ones(1, 1).fill_(start_symbol).type(torch.long).to(self.device)
-        for i in range(max_len - 1):
+        for _ in range(max_len - 1):
             tgt_mask =(causal_mask(ys.size(1)).type(torch.bool)).to(self.device)
             tgt_mask = tgt_mask.unsqueeze(0)
             out = self.model.decode(memory,src_mask,ys,tgt_mask)
@@ -122,7 +134,6 @@ class Predictor():
         self.model.eval()
 
         src = test_example[0]
-        num_tokens = src.shape[0]
 
         src_mask = test_example[3]
         tgt_tokens = self.greedy_decode(
@@ -139,9 +150,9 @@ class Predictor():
         return decoded_eqn
 
 
-class Trainer():
+class Trainer:
     """
-    Class for training a sequence-to-sequence model.
+    Class for training Skanformer.
 
     Args:
         start_epoch (int, optional): Starting epoch number. Defaults to 0.
@@ -160,58 +171,81 @@ class Trainer():
         model (Model): Model for training.
         optimizer (Optimizer): Optimizer for training.
         scheduler (Scheduler): Learning rate scheduler.
-        resume_best (bool): Whether to resume from the last best saved model
-        save_freq (int): Frequency of saving in terms of epochs
-        save_last (bool): Whether to save model after complete training
-
+        resume_best (bool): Whether to resume from the last best saved model.
+        save_freq (int): Frequency of saving in terms of epochs.
+        save_last (bool): Whether to save model after complete training.
     """
 
     def __init__(self, config, df_train, df_test, df_valid, tokenizer, src_vocab, tgt_vocab, tgt_itos):
-
-        # For half precision training
+        # Initialize half-precision training
         self.scaler = GradScaler()
+        self.dtype = torch.float16 if config.use_half_precision else torch.float32
         self.is_constant_lr = config.is_constant_lr
-        if config.use_half_precision:
-            self.dtype = torch.float16
-        else:
-            self.dtype = torch.float32
+        
+        # Set device ranks
         self.local_rank = int(os.environ["LOCAL_RANK"])
         self.global_rank = int(os.environ["RANK"])
-        if config.debug is not True:
-            print(f"PROCESS ID : {int(os.environ['SLURM_PROCID'])} ; TORCH GLOBAL RANK : {self.global_rank} ; TORCH LOCAL RANK : {self.local_rank}")
         self.device = self.local_rank
+        
+        if not config.debug:
+            print(
+                f"PROCESS ID: {int(os.environ['SLURM_PROCID'])} ; "
+                f"TORCH GLOBAL RANK: {self.global_rank} ; "
+                f"TORCH LOCAL RANK: {self.local_rank}"
+            )
+        
+        # Config setup
         self.config = config
         self.config.device = self.device
         self.is_master = self.local_rank == 0
+        
         if self.is_master:
             wandb.login()
             self.run = wandb.init(
-            # set the wandb project where this run will be logged
-            project= config.project_name,
-            name = config.run_name,
-            # track hyperparameters and run metadata
-            config=config.to_dict()
+                project=config.project_name,
+                name=config.run_name,
+                dir=config.root_dir,
+                config=config.to_dict()
             )
-        self.dataloaders,self.test_ds = self._prepare_dataloaders(
-            df_train, df_test, df_valid, tokenizer, src_vocab, tgt_vocab)
-        self.warmup_steps = int(config.warmup_ratio *
-                                len(self.dataloaders['train']) * config.epochs)
+        
+        # Prepare dataloaders
+        self.dataloaders, self.test_ds = self._prepare_dataloaders(
+            df_train, df_test, df_valid, tokenizer, src_vocab, tgt_vocab
+        )
+        
+        # Training parameters
+        self.warmup_steps = int(
+            config.warmup_ratio * len(self.dataloaders['train']) * config.epochs
+        )
         self.ep_steps = len(self.dataloaders['train'])
         self.root_dir = config.root_dir
         self.current_epoch = config.curr_epoch
-        self.best_val_loss = 1e6
+        self.best_val_loss = float('inf')
         self.train_loss_list = []
         self.valid_loss_list = []
+        
+        # Model and optimizer setup
         self.model, self.ddp_model = self._prepare_model()
         self.optimizer = self._prepare_optimizer()
         self.warm_scheduler, self.lr_scheduler = self._prepare_scheduler()
+        
+        # Saving and testing configuration
         self.save_freq = config.save_freq
         self.test_freq = config.test_freq
         self.resume_best = config.resume_best
         self.save_last = config.save_last
         self.lr = config.update_lr
         self.global_step = 0
+        
+        # Target vocabulary
         self.tgt_itos = tgt_itos
+        
+        # Checkpoint management
+        self.ckp_paths = [
+            file for file in os.listdir(config.root_dir)
+            if ('best' not in file and config.model_name in file)
+        ]
+        self.save_limit = config.save_limit
 
     def criterion(self, y_pred, y_true):
         """
@@ -224,7 +258,7 @@ class Trainer():
         Returns:
             Tensor: Loss value.
         """
-        loss_fn = torch.nn.CrossEntropyLoss()
+        loss_fn = torch.nn.CrossEntropyLoss(ignore_index=PAD_IDX)
         return loss_fn(y_pred, y_true)
 
     def _prepare_model(self):
@@ -298,7 +332,7 @@ class Trainer():
         dataloaders = {
             'train': train_loader,
             'valid': torch.utils.data.DataLoader(datasets['valid'],
-                                                 batch_size=self.config.valid_batch_size, shuffle=self.config.test_shuffle,
+                                                 batch_size=self.config.valid_batch_size, shuffle=self.config.valid_shuffle,
                                                  num_workers=self.config.num_workers, pin_memory=self.config.pin_memory),
         }
         return dataloaders,datasets['test']
@@ -357,7 +391,7 @@ class Trainer():
         for src, tgt,label,src_mask, tgt_mask in pbar:
             src = src.to(self.device)
             tgt = tgt.to(self.device)
-            bs = src.size(1)
+            bs = src.size(0)
             src_mask = src_mask.to(self.device)
             tgt_mask = tgt_mask.to(self.device)
             label = label.to(self.device)
@@ -438,7 +472,7 @@ class Trainer():
             for src, tgt,label,src_mask, tgt_mask in pbar:
                 src = src.to(self.device)
                 tgt = tgt.to(self.device)
-                bs = src.size(1)
+                bs = src.size(0)
                 src_mask = src_mask.to(self.device)
                 tgt_mask = tgt_mask.to(self.device)
                 label = label.to(self.device)
@@ -462,6 +496,7 @@ class Trainer():
             checkpoint_name (str): Name of the checkpoint file.
         """
         state_dict = self.ddp_model.module.state_dict()
+        ckp_path = os.path.join(self.root_dir, checkpoint_name)
         torch.save({
             "epoch": self.current_epoch + 1,
             "state_dict": state_dict,
@@ -471,14 +506,23 @@ class Trainer():
             "train_loss_list": self.train_loss_list,
             "valid_loss_list": self.valid_loss_list,
             "global_step": self.global_step
-        }, os.path.join(self.root_dir, checkpoint_name))
+        }, ckp_path)
+
+        if "best" not in  checkpoint_name:
+            self.ckp_paths.append(ckp_path)
+        
+        # Remove oldest checkpoint if exceeding save_limit
+        if len(self.ckp_paths) > self.save_limit:
+            oldest_checkpoint = self.ckp_paths.pop(0)
+            if os.path.exists(oldest_checkpoint):
+                os.remove(oldest_checkpoint)
+                print(f"Deleted old checkpoint: {oldest_checkpoint}")
+        
 
     def _test_seq_acc(self, load_best=True, epochs=None):
         """
         Test sequence accuracy and save results to a file.
         """
-        # self.device = 'cuda'
-#         self.load_model(resume=load_best)
         test_accuracy_seq = sequence_accuracy(self.config,self.test_ds,self.tgt_itos,load_best, epochs)
         self.run.log({'test/acc': test_accuracy_seq,
                   'global_step': self.global_step})
@@ -489,9 +533,7 @@ class Trainer():
         Train the model.
         """
         if self.is_master:
-            # define our custom x axis metric
             self.run.define_metric("global_step")
-            # define which metrics will be plotted against it
             self.run.define_metric("validation/*", step_metric="global_step")
             self.run.define_metric("train/*", step_metric="global_step")
             self.run.define_metric("test/*", step_metric="global_step")
@@ -529,10 +571,7 @@ class Trainer():
 
                     elif (self.current_epoch+1) % self.test_freq == 0:
                         self._test_seq_acc()                            
-                # if valid_loss <= self.best_val_loss:
-                #     self.best_val_loss = valid_loss
-                #     self._save_model(f"{self.config.model_name}_best.pth")
-                #     self._test_seq_acc()
+
 
             torch.distributed.barrier()
             print(f"Epoch {self.current_epoch + 1}/{self.config.epochs}, "

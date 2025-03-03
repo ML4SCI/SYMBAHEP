@@ -7,9 +7,6 @@ import torch
 from trainer import Trainer
 import os
 
-# Special tokens & coressponding ids
-BOS_IDX, PAD_IDX, EOS_IDX, UNK_IDX, SEP_IDX = 0, 1, 2, 3, 4
-special_symbols = ['<S>', '<PAD>', '</S>', '<UNK>', '<SEP>']
 
 
 def main(config, df_train,df_test,df_valid,tokenizer,src_vocab,tgt_vocab,tgt_itos):
@@ -47,8 +44,9 @@ if __name__ == '__main__':
     config.tgt_voc_size = len(tgt_vocab)    
     
     if config.debug:
-        config.epochs = 1
-        df_train = df_train.sample(1000).reset_index(drop=True)
+        config.epochs = 2
+        df_train = df_train.sample(100).reset_index(drop=True)
+        df_valid = df_valid.sample(100).reset_index(drop=True)
     
     print(f"TRAIN SAMPLES : {df_train.shape}")
     print("Data loading complete")

@@ -1,9 +1,7 @@
 from torch.utils.data import Dataset
 import torch
 
-# Special tokens & coressponding ids
-BOS_IDX, PAD_IDX, EOS_IDX, UNK_IDX, SEP_IDX = 0, 1, 2, 3, 4
-special_symbols = ['<S>', '<PAD>', '</S>', '<UNK>', '<SEP>']
+from ..constants import BOS_IDX, PAD_IDX, EOS_IDX
 
 class Data(Dataset):
     """
@@ -67,8 +65,6 @@ class Data(Dataset):
                 self.bos_token,
                 torch.tensor(src_ids, dtype=torch.int64),
                 self.eos_token,
-                torch.tensor([self.pad_token] *
-                             enc_num_padding_tokens, dtype=torch.int64),
             ],
             dim=0,
         )
@@ -77,8 +73,7 @@ class Data(Dataset):
                 self.bos_token,
                 torch.tensor(tgt_ids, dtype=torch.int64),
                 self.eos_token,
-                torch.tensor([self.pad_token] *
-                             dec_num_padding_tokens, dtype=torch.int64),
+
             ],
             dim=0,
         )

@@ -82,7 +82,7 @@ class Model(nn.Module):
             num_decoder_layers=num_decoder_layers,
             dim_feedforward=dim_feedforward,
             dropout=dropout,
-            norm_first=True,
+            norm_first=False,
         )
         self.generator = nn.Linear(emb_size, tgt_vocab_size)
         self.src_tok_emb = TokenEmbedding(src_vocab_size, emb_size)
@@ -121,7 +121,7 @@ class Model(nn.Module):
         )
         return self.generator(outs)
 
-    def encode(self, src: Tensor, src_mask: Tensor):
+    def encode(self, src: Tensor, src_mask: Tensor, src_pad_mask: Tensor):
         """
         Encode the source input.
 
@@ -132,9 +132,9 @@ class Model(nn.Module):
         Returns:
             Tensor: Encoded tensor.
         """
-        return self.transformer.encoder(self.positional_encoding(self.src_tok_emb(src)), src_mask)
+        return self.transformer.encoder(self.positional_encoding(self.src_tok_emb(src)), src_mask, src_pad_mask)
 
-    def decode(self, tgt: Tensor, memory: Tensor, tgt_mask: Tensor):
+    def decode(self, tgt: Tensor, memory: Tensor, tgt_mask: Tensor, memory_mask: Tensor, tgt_pad_mask: Tensor, memory_pad_mask: Tensor):
         """
         Decode the target input.
 
@@ -146,6 +146,5 @@ class Model(nn.Module):
         Returns:
             Tensor: Decoded tensor.
         """
-        return self.transformer.decoder(self.positional_encoding(self.tgt_tok_emb(tgt)), memory, tgt_mask)
-
+        return self.transformer.decoder(self.positional_encoding(self.tgt_tok_emb(tgt)), memory, tgt_mask, memory_mask, tgt_pad_mask, memory_pad_mask)
 

@@ -3,16 +3,16 @@
 #SBATCH .. args
 
 
-module load pytorch/X
+module load pytorch
 
 nvidia-smi
 
 srun torchrun --standalone --nproc_per_node 4 seq_acc.py \
-    --project_name "Transformer_EW_2-to-3_32x2" \
-    --run_name "final_small_3layers_$SLURM_JOB_ID" \
-    --model_name "transformer_SBS_HLR_small" \
-    --root_dir "$SCRATCH/EW/2-to-3/trained_models" \
-    --data_dir "$SCRATCH/EW/data/EW_small_2-to-3" \
+    --project_name "Dummy_Transformer_Project" \
+    --run_name "dummy_run" \
+    --model_name "dummy_transformer" \
+    --root_dir "transformer_checkpoints" \
+    --data_dir "transformer_data" \
     --device "cuda" \
     --epochs 50 \
     --training_batch_size 64 \

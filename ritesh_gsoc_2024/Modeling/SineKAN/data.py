@@ -2,9 +2,7 @@ from fn_utils import causal_mask
 from torch.utils.data import Dataset
 import torch
 
-# Special tokens & coressponding ids
-BOS_IDX, PAD_IDX, EOS_IDX, UNK_IDX, SEP_IDX = 0, 1, 2, 3, 4
-special_symbols = ['<S>', '<PAD>', '</S>', '<UNK>', '<SEP>']
+from ..constants import EOS_IDX,BOS_IDX,PAD_IDX
 
 class Data(Dataset):
     """

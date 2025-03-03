@@ -29,14 +29,13 @@ df = pd.concat([df_train, df_valid, df_test]).reset_index(drop=True)
 
 # Create tokenizer and vocabularies
 tokenizer, src_vocab, tgt_vocab, src_itos, tgt_itos = create_tokenizer(
-    df, config, config.index_pool_size, config.momentum_pool_size, is_old=True,
+    df, config, config.index_pool_size, config.momentum_pool_size,
 )
 config.src_voc_size = len(src_vocab)
 config.tgt_voc_size = len(tgt_vocab)
 
 # Split test data among processes
 test_splits = [split.reset_index(drop=True) for split in np.array_split(df_test, world_size)]
-
 
 # Directory to save accuracy files
 output_dir = config.root_dir+"/accuracy_outputs/" + config.project_name

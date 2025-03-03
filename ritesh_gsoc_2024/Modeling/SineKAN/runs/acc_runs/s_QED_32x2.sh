@@ -1,18 +1,17 @@
 #!/bin/bash
 
-#SBATCH ... args
+#SBATCH .....args
 
-
-module load pytorch/X
+module load pytorch
 
 nvidia-smi
 
-srun torchrun --standalone --nproc_per_node 2 main.py \
-    --project_name "RSineKANformer_QED_2-to-2" \
-    --run_name "run_normal_3layers_$SLURM_JOB_ID" \
-    --model_name "rsinekanformer_32x2_new" \
-    --root_dir "$SCRATCH/QED/RSineKAN/2-to-2" \
-    --data_dir "$SCRATCH/QED/data/QED_normal_2-to-2" \
+srun torchrun --standalone --nproc_per_node 4 seq_acc.py \
+    --project_name "Dummy_Transformer_Project" \
+    --run_name "dummy_run" \
+    --model_name "dummy_transformer" \
+    --root_dir "transformer_checkpoints" \
+    --data_dir "transformer_data" \
     --device "cuda" \
     --epochs 30 \
     --training_batch_size 32 \

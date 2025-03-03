@@ -1,6 +1,6 @@
 from tqdm import tqdm
 from data import Data
-from fn_utils import calculate_line_params, collate_fn, create_mask, generate_eqn_mask, generate_unique_random_integers, get_model, tgt_decode
+from fn_utils import calculate_line_params, collate_fn, create_mask, generate_eqn_mask, generate_unique_random_integers, get_model, decode_sequence
 import torch
 import os
 from torch.optim.lr_scheduler import LambdaLR
@@ -9,9 +9,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import wandb
 import numpy as np
 
-# Special tokens & coressponding ids
-BOS_IDX, PAD_IDX, EOS_IDX, UNK_IDX, SEP_IDX = 0, 1, 2, 3, 4
-special_symbols = ['<S>', '<PAD>', '</S>', '<UNK>', '<SEP>']
+from ..constants import BOS_IDX, PAD_IDX, EOS_IDX
 
 def sequence_accuracy(config,test_ds,tgt_itos,load_best=True, epoch=None,test_size=100):
     """
@@ -37,109 +35,113 @@ def sequence_accuracy(config,test_ds,tgt_itos,load_best=True, epoch=None,test_si
             test_ds[random_idx[i]],tgt_itos, raw_tokens=True)
         original_tokens = original_tokens.detach().numpy().tolist()
         predicted_tokens = predicted_tokens.detach().cpu().numpy().tolist()
-        original = tgt_decode(original_tokens,tgt_itos)
-        predicted = tgt_decode(predicted_tokens,tgt_itos)
+        original = decode_sequence(original_tokens,tgt_itos)
+        predicted = decode_sequence(predicted_tokens,tgt_itos)
         if original == predicted:
             count = count + 1
         pbar.set_postfix(seq_accuracy=count / (i + 1))
     return count / length
 
 
-class Predictor():
+class Predictor:
     """
-    Class for generating predictions using a trained model.
+    Class for generating predictions using a trained model and greedy decoding.
 
     Args:
-        device (str): Device to use for inference.
-        epoch (int): Epoch number.
+        config (object): Configuration object containing model and inference settings.
+        load_best (bool, optional): Whether to load the best model. Defaults to True.
+        epoch (int, optional): Epoch number to load a specific checkpoint.
 
     Attributes:
         model (Model): Trained model for prediction.
-        path (str): Path to the trained model.
+        path (str): Path to the trained model checkpoint.
         device (str): Device for inference.
-        df (DataFrame): DataFrame containing training data.
-        vocab (dict): Vocabulary for tokenization.
-        attrs (list): List of attributes in the dataset.
-        checkpoint (str): model checkpoint path
+        checkpoint (str): Model checkpoint filename.
+        max_len (int): Maximum target sequence length for inference.
     """
 
     def __init__(self, config, load_best=True, epoch=None):
         self.model = get_model(config)
-        self.checkpoint = f"{config.model_name}_best.pth" if load_best else f"{config.model_name}_ep{epoch+1}.pth"
+        self.checkpoint = (
+            f"{config.model_name}_best.pth"
+            if load_best else f"{config.model_name}_ep{epoch + 1}.pth"
+        )
         self.path = os.path.join(config.root_dir, self.checkpoint)
         self.device = config.device
+        
+        # Load model checkpoint
         state = torch.load(self.path, map_location=self.device)
         self.model.load_state_dict(state['state_dict'])
         self.model.to(self.device)
-        print(f"USING EPOCH {state['epoch']} MODEL FOR PREDICTIONS")
+        self.max_len = config.tgt_max_len
+        
+        print(f"Using epoch {state['epoch']} model for predictions.")
 
-    def greedy_decode(self, src, src_mask, max_len, start_symbol):
+    def greedy_decode(self, src, src_mask, src_padding_mask, start_symbol):
         """
-        Generate a sequence using greedy decoding.
+        Performs greedy decoding to generate predictions.
 
         Args:
-            src (Tensor): Source input.
-            src_mask (Tensor): Mask for source input.
-            max_len (int): Maximum length of the generated sequence.
-            start_symbol (int): Start symbol for decoding.
+            src (Tensor): Source tensor.
+            src_mask (Tensor): Source mask tensor.
+            src_padding_mask (Tensor): Source padding mask.
+            start_symbol (int): Start token index.
 
         Returns:
-            Tensor: Generated sequence.
+            Tensor: Generated token sequence.
         """
-        src = src.to(self.device)
-        src_mask = src_mask.to(self.device)
-
-        memory = self.model.encode(src, src_mask)
-        memory = memory.to(self.device)
-
-        ys = torch.ones(1, 1).fill_(start_symbol).type(
-            torch.long).to(self.device)
-
-        for i in range(max_len - 1):
-            tgt_mask = (generate_eqn_mask(ys.size(0), self.device).type(
-                torch.bool)).to(self.device)
-            out = self.model.decode(ys, memory, tgt_mask)
+        src, src_mask, src_padding_mask = (
+            src.to(self.device), src_mask.to(self.device), src_padding_mask.to(self.device)
+        )
+        
+        memory = self.model.encode(src, src_mask, src_padding_mask).to(self.device)
+        
+        ys = torch.ones(1, 1, dtype=torch.long, device=self.device).fill_(start_symbol)
+        
+        for _ in range(self.max_len):
+            tgt_mask = generate_eqn_mask(ys.size(0), self.device).bool().to(self.device)
+            tgt_padding_mask = (ys == PAD_IDX).transpose(0, 1).to(self.device)
+            
+            out = self.model.decode(ys, memory, tgt_mask, None, tgt_padding_mask, src_padding_mask)
             out = out.transpose(0, 1)
+            
             prob = self.model.generator(out[:, -1])
-
             _, next_word = torch.max(prob, dim=1)
             next_word = next_word.item()
-
-            ys = torch.cat([ys, torch.ones(1, 1).type_as(
-                src.data).fill_(next_word)], dim=0)
+            
+            ys = torch.cat([ys, torch.ones(1, 1, dtype=src.dtype, device=self.device).fill_(next_word)], dim=0)
+            
             if next_word == EOS_IDX:
                 break
+        
         return ys
 
     def predict(self, test_example, itos, raw_tokens=False):
         """
-        Generate prediction for a test example.
+        Generates predictions for a given test example.
 
         Args:
-            test_example (dict): Test example containing input features.
-            raw_tokens (bool, optional): Whether to return raw tokens. Defaults to False.
+            test_example (tuple): Tuple containing source tensor and original tokens.
+            itos (dict): Index-to-string vocabulary mapping.
+            raw_tokens (bool, optional): Whether to return raw token outputs. Defaults to False.
 
         Returns:
-            str or tuple: Decoded equation or tuple of original and predicted tokens.
+            str or tuple: Decoded equation or tuple of original and generated tokens.
         """
         self.model.eval()
-
+        
         src = test_example[0].unsqueeze(1)
-        num_tokens = src.shape[0]
-
-        src_mask = (torch.zeros(num_tokens, num_tokens)).type(torch.bool)
-        tgt_tokens = self.greedy_decode(
-            src, src_mask, max_len=num_tokens + 5, start_symbol=BOS_IDX).flatten()
-
+        
+        src_mask, tgt_mask, src_padding_mask, tgt_padding_mask = create_mask(
+            src, torch.zeros((1, 1), dtype=torch.long, device=self.device), self.device
+        )
+        
+        tgt_tokens = self.greedy_decode(src, src_mask, src_padding_mask, start_symbol=BOS_IDX).flatten()
+        
         if raw_tokens:
-            original_tokens = test_example[1]
-            return original_tokens, tgt_tokens
-
-        decoded_eqn = ''
-        for t in tgt_tokens:
-            decoded_eqn += itos[int(t)]
-
-        return decoded_eqn
+            return test_example[1], tgt_tokens
+        
+        return ''.join(itos[int(t)] for t in tgt_tokens)
 
 
 class Trainer():
@@ -191,6 +193,7 @@ class Trainer():
             # set the wandb project where this run will be logged
             project= config.project_name,
             name = config.run_name,
+            dir=config.root_dir,
             # track hyperparameters and run metadata
             config=config.to_dict()
             )
@@ -214,6 +217,8 @@ class Trainer():
         self.lr = config.update_lr
         self.global_step = 0
         self.tgt_itos = tgt_itos
+        self.ckp_paths = [file for file in os.listdir(config.root_dir) if ('best' not in file and config.model_name in file)]
+        self.save_limit = config.save_limit
 
     def criterion(self, y_pred, y_true):
         """
@@ -226,7 +231,7 @@ class Trainer():
         Returns:
             Tensor: Loss value.
         """
-        loss_fn = torch.nn.CrossEntropyLoss()
+        loss_fn = torch.nn.CrossEntropyLoss(ignore_index=PAD_IDX)
         return loss_fn(y_pred, y_true)
 
     def _prepare_model(self):
@@ -299,7 +304,7 @@ class Trainer():
         dataloaders = {
             'train': train_loader,
             'valid': torch.utils.data.DataLoader(datasets['valid'],
-                                                 batch_size=self.config.valid_batch_size, shuffle=self.config.test_shuffle,
+                                                 batch_size=self.config.valid_batch_size, shuffle=self.config.valid_shuffle,
                                                  num_workers=self.config.num_workers, pin_memory=self.config.pin_memory, collate_fn=collate_fn),
         }
         return dataloaders,datasets['test']
@@ -457,6 +462,7 @@ class Trainer():
         Args:
             checkpoint_name (str): Name of the checkpoint file.
         """
+        ckp_path = os.path.join(self.root_dir, checkpoint_name)
         state_dict = self.ddp_model.module.state_dict()
         torch.save({
             "epoch": self.current_epoch + 1,
@@ -467,14 +473,23 @@ class Trainer():
             "train_loss_list": self.train_loss_list,
             "valid_loss_list": self.valid_loss_list,
             "global_step": self.global_step
-        }, os.path.join(self.root_dir, checkpoint_name))
+        }, ckp_path)
+        
+        if "best" not in  checkpoint_name:
+            self.ckp_paths.append(ckp_path)
+        
+        # Remove oldest checkpoint if exceeding save_limit
+        if len(self.ckp_paths) > self.save_limit:
+            oldest_checkpoint = self.ckp_paths.pop(0)
+            if os.path.exists(oldest_checkpoint):
+                os.remove(oldest_checkpoint)
+                print(f"Deleted old checkpoint: {oldest_checkpoint}")
 
     def _test_seq_acc(self, load_best=True, epochs=None):
         """
         Test sequence accuracy and save results to a file.
         """
-        # self.device = 'cuda'
-#         self.load_model(resume=load_best)
+
         test_accuracy_seq = sequence_accuracy(self.config,self.test_ds,self.tgt_itos,load_best, epochs)
         self.run.log({'test/acc': test_accuracy_seq,
                   'global_step': self.global_step})
@@ -485,9 +500,8 @@ class Trainer():
         Train the model.
         """
         if self.is_master:
-            # define our custom x axis metric
+
             self.run.define_metric("global_step")
-            # define which metrics will be plotted against it
             self.run.define_metric("validation/*", step_metric="global_step")
             self.run.define_metric("train/*", step_metric="global_step")
             self.run.define_metric("test/*", step_metric="global_step")
@@ -525,10 +539,7 @@ class Trainer():
 
                     elif (self.current_epoch+1) % self.test_freq == 0:
                         self._test_seq_acc()                            
-                # if valid_loss <= self.best_val_loss:
-                #     self.best_val_loss = valid_loss
-                #     self._save_model(f"{self.config.model_name}_best.pth")
-                #     self._test_seq_acc()
+
             
             torch.distributed.barrier()
 
